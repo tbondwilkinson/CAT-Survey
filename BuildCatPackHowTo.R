@@ -28,6 +28,8 @@ cat@difficulty <- lapply(json_cat$difficulty, unlist)
 cat@X <- json_cat$X
 cat@poly <- TRUE
 nextItemEPVcpp(cat)
+
+## Run this if you change code and need to resource the cpp file
 sourceCpp("./catSurv/src/epv.cpp")
 
 ## Build a version of the package to share manually
