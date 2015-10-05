@@ -33,13 +33,16 @@ struct Cat {
 	// in hermite-gauss, it should be the roots of the hermite polynomial
 	std::vector<double> X;
 	std::vector<double> theta_est;
-	std::vector<std::vector<double> > difficulty;
+	std::vector<std::vector<double>> poly_difficulty;
+	std::vector<double> nonpoly_difficulty;
 	std::vector<int> applicable_rows;
 	bool poly;
 	enum IntegrationType {
 		TRAPEZOID, HERMITE, QAG
 	};
+	enum EstimationType { EAP };
 	IntegrationType integration_method;
+	EstimationType estimation_method;
 	boost::variant<boost::math::normal, boost::math::cauchy, boost::math::students_t> distribution;
 
     struct DistributionVisitor : public boost::static_visitor<double> {
@@ -54,9 +57,11 @@ struct Cat {
 
 	Cat(std::vector<double> guess, std::vector<double> disc, std::vector<double> pri_v, std::string pri_n,
 		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, std::vector<double> t_est,
-		std::vector<std::vector<double> > diff, std::vector<int> app_rows, bool p, std::string im) :
+		std::vector<std::vector<double> > poly_diff, std::vector<double> nonpoly_diff, std::vector<int> app_rows, 
+		bool p, std::string im, std::string em) :
 		guessing(guess), discrimination(disc), prior_values(pri_v), prior_name(pri_n), prior_params(pri_p),
-		answers(ans), D(d), X(x), theta_est(t_est), difficulty(diff), applicable_rows(app_rows), poly(p)
+		answers(ans), D(d), X(x), theta_est(t_est), poly_difficulty(poly_diff), nonpoly_difficulty(nonpoly_diff),
+		applicable_rows(app_rows), poly(p)
 		{
 			if (im.compare("qag") == 0) {
 				integration_method = QAG;
@@ -73,6 +78,10 @@ struct Cat {
 				integration_method = HERMITE;
 			} else {
 				integration_method = TRAPEZOID;
+			}
+
+			if(em.compare("EAP")){
+				em = EAP;
 			}
 		}
 
@@ -143,15 +152,27 @@ NumericVector prior(NumericVector& values, CharacterVector& name, NumericVector&
 	}
 }
 
-void three_pl(Cat& cat, double theta, int question, std::vector<double>& ret_prob) {
-	unsigned int diff_size = cat.difficulty[question].size();
+void probability(Cat& cat, double theta, int question, std::vector<double>& ret_prob) {
+	unsigned int diff_size = cat.poly_difficulty[question].size();
 	double D = cat.D;
 	double discrimination = cat.discrimination[question];
 	double guessing = cat.guessing[question];
 	for (unsigned int i = 0; i < diff_size; ++i) {
-		double exp_prob = exp(D * discrimination * (theta - cat.difficulty[question][i]));
+		double exp_prob = exp(D * discrimination * (theta - cat.poly_difficulty[question][i]));
 		ret_prob.push_back(guessing + (1 - guessing) * (exp_prob) / (1 + exp_prob));
 	}
+}
+
+/* Overloaded since non-poly case needs to just return one double value, 
+ * rather than a vector of doubles.
+ */
+double probability(Cat & cat, double theta, int question){
+	double D = cat.D;
+	double discrimination = cat.discrimination[question];
+	double difficulty = cat.nonpoly_difficulty[question];
+	double guessing = cat.guessing[question];
+	double exp_prob = exp(D*discrimination * (theta - difficulty));
+	return guessing + (1 - guessing) * (exp_prob / (1 + exp_prob));
 }
 
 double likelihood(Cat & cat, double theta, std::vector<int> items) {
@@ -161,7 +182,7 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 			int question = items[i];
 			std::vector<double> question_cdf;
 			question_cdf.push_back(1.0);
-			three_pl(cat, theta, question, question_cdf);
+			probability(cat, theta, question, question_cdf);
 			question_cdf.push_back(0.0);
 
 			std::vector<double> question_pdf;
@@ -172,38 +193,56 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 		}
 		return L;
 	} else {
-		// Non-poly case not implemented.
-		return -1;
+		double L = 1.0;
+		for(unsigned int i = 0; i < items.size(); ++i){
+			int question = items[i];
+			double probability = probability(cat, theta, question);
+			int this_answer = cat.answers[question]; // TODO: verify that this is what is meant by cat@ansers[items]
+			double l_temp = pow(probability, this_answer) * pow(1-probability, 1-this_answer);
+			L *= l_temp;
+		}
+		return L;
 	}
 }
-
 double estimateTheta(Cat & cat) {
 	double results = 0.0;
-	if (cat.integration_method == Cat::TRAPEZOID) {
-		std::vector<double> fx;
-		std::vector<double> fx_x;
-		for (unsigned int i = 0; i < cat.X.size(); ++i) {
-			fx.push_back(likelihood(cat, cat.X[i], cat.applicable_rows) * cat.prior_values[i]);
-			fx_x.push_back(cat.X[i] * fx[i]);
+	if(cat.estimation_method == EAP){
+		if (cat.integration_method == Cat::TRAPEZOID) {
+			std::vector<double> fx;
+			std::vector<double> fx_x;
+			for (unsigned int i = 0; i < cat.X.size(); ++i) {
+				fx.push_back(likelihood(cat, cat.X[i], cat.applicable_rows) * cat.prior_values[i]);
+				fx_x.push_back(cat.X[i] * fx[i]);
+			}
+			results = trapezoidal_integration(cat.X, fx_x) / trapezoidal_integration(cat.X, fx);
 		}
-		results = trapezoidal_integration(cat.X, fx_x) / trapezoidal_integration(cat.X, fx);
+		// else if (cat.integration_method == Cat::QAG) {
+		// 	gsl_function Ftop;
+		// 	Ftop.function = &integrateTopTheta;
+		// 	Ftop.params = &cat;
+		//
+		// 	gsl_function Fbottom;
+		// 	Fbottom.function = &integrateBottom;
+		// 	Fbottom.params = &cat;
+		//
+		// 	results = gsl_integration_qag(Ftop) / gsl_integration_qag(Fbottom);
+		// }
+		else{
+			//other intergrations methods not yet implemented
+			return -1; 
+		}
 	}
-	// else if (cat.integration_method == Cat::QAG) {
-	// 	gsl_function Ftop;
-	// 	Ftop.function = &integrateTopTheta;
-	// 	Ftop.params = &cat;
-	//
-	// 	gsl_function Fbottom;
-	// 	Fbottom.function = &integrateBottom;
-	// 	Fbottom.params = &cat;
-	//
-	// 	results = gsl_integration_qag(Ftop) / gsl_integration_qag(Fbottom);
-	// }
+	else{
+		// other estimation methods not yet implemented
+		return -2; 
+	}
+	
 	return results;
 }
 
-double estimateSE(Cat & cat, double theta_hat) {
+double estimateSE(Cat & cat) {
 	double results = 0.0;
+	double theta_hat = estimateTheta(cat);
 	if (cat.integration_method == Cat::TRAPEZOID) {
 		std::vector<double> fx;
 		std::vector<double> fx_theta;
@@ -223,15 +262,19 @@ double estimateSE(Cat & cat, double theta_hat) {
 	//
 	// 	results = sqrt(gsl_integration_qag(Ftop) / gsl_integration_qag(Fbottom));
 	// }
-
+	else{
+		//other integration methods not yet implemented
+		return -1;
+	}
 	return results;
 }
 
 double expectedPV(Cat cat, int item) {
+	double sum = 0.0;
+	cat.applicable_rows.push_back(item); // add item to set of answered items
 	if (cat.poly) {
 		std::vector<double> variances;
-		cat.applicable_rows.push_back(item);
-		for (unsigned int i = 0, size = cat.difficulty[item].size() + 1; i < size; ++i) {
+		for (unsigned int i = 0, size = cat.poly_difficulty[item].size() + 1; i < size; ++i) {
 			cat.answers[item] = i + 1;
 			variances.push_back(estimateSE(cat, estimateTheta(cat)));
 			variances[i] *= variances[i];
@@ -240,17 +283,25 @@ double expectedPV(Cat cat, int item) {
 		cat.applicable_rows.pop_back();
 		std::vector<double> question_cdf;
 		question_cdf.push_back(1.0);
-		three_pl(cat, estimateTheta(cat), item, question_cdf);
+		probability(cat, estimateTheta(cat), item, question_cdf);
 		question_cdf.push_back(0.0);
-		double sum = 0.0;
 		for (unsigned int i = 0, size = question_cdf.size() - 1; i < size; ++i) {
 			sum += variances[i] * (question_cdf[i] - question_cdf[i + 1]);
 		}
-		return sum;
 	} else {
-		// not implemented
-		return -1;
+		cat.answers[item] = 0;
+		double variance_zero = estimateSE(cat);
+		variance_zero *= variance_zero; 
+		cat.answers[item] = 1;
+		double variance_one = estimateSE(cat);
+		variance_one *= variance_one;
+		cat.applicable_rows.pop_back();
+		cat.answers[item] = NA_INTEGER; // remove answer
+		double prob_zero = probability(cat, estimateTheta(cat), item);
+		double prob_one = 1.0 - prob_zero;
+		sum = (prob_zero * variance_zero) + (prob_one * varaince_one);
 	}
+	return sum;
 }
 
 // [[Rcpp::export]]
@@ -272,22 +323,36 @@ List nextItemEPVcpp(S4 cat_df) {
 			nonapplicable_rows.push_back(i + 1);
 		}
 	}
-	// Unpack the difficulty list
-	std::vector<std::vector<double> > difficulty;
-	List cat_difficulty = cat_df.slot("difficulty");
-	for (List::iterator itr = cat_difficulty.begin(); itr != cat_difficulty.end(); ++itr) {
-		difficulty.push_back(as<std::vector<double> >(*itr));
+
+	bool poly = as<std::vector<bool> >(cat_df.slot("poly"))[0];
+	std::vector<std::vector<double> > poly_difficulty; // if poly, construct obj with vector<vector<double>> for difficulty
+	std::vector<double> nonpoly_difficulty;
+	if(poly){
+		// Unpack the difficulty list
+		List cat_difficulty = cat_df.slot("difficulty");
+		for (List::iterator itr = cat_difficulty.begin(); itr != cat_difficulty.end(); ++itr) {
+			poly_difficulty.push_back(as<std::vector<double> >(*itr)); // if poly, set poly_difficulty to vector<vector<double>
+		}
 	}
-	// Construct the c++ cat object
+	else{
+		// if non-poly, set non_poly difficulty to vector<double>
+		nonpoly_difficulty = as<std::vector<double> >(cat_df.slot("difficulty");
+	}
+
+
+	//Construct C++ Cat object
 	Cat cat(as<std::vector<double> >(cat_df.slot("guessing")), as<std::vector<double> >(cat_df.slot("discrimination")),
-		prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
-		as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
-		as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
-		difficulty, applicable_rows, as<std::vector<bool> >(cat_df.slot("poly"))[0], as<std::string>(cat_df.slot("integration")));
+			prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
+			as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
+			as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
+			poly_difficulty, nonpoly_difficulty, applicable_rows, poly, as<sd::string>(cat_df.slot("integration")),
+			as<sd::string>(cat_df.slot("estimation")));
+
 	// For every unanswered item, calculate the epv of that item
 	std::vector<double> epvs;
 	int min_item = -1;
 	double min_epv = std::numeric_limits<double>::max();
+
 	for (unsigned int i = 0, size = nonapplicable_rows.size(); i < size; ++i) {
 		epvs.push_back(expectedPV(cat, nonapplicable_rows[i] - 1));
 		if (epvs[i] < min_epv) {
