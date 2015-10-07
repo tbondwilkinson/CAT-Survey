@@ -33,7 +33,7 @@ struct Cat {
 	// in hermite-gauss, it should be the roots of the hermite polynomial
 	std::vector<double> X;
 	std::vector<double> theta_est;
-	std::vector<std::vector<double>> poly_difficulty;
+	std::vector<std::vector<double> > poly_difficulty;
 	std::vector<double> nonpoly_difficulty;
 	std::vector<int> applicable_rows;
 	bool poly;
@@ -196,9 +196,9 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 		double L = 1.0;
 		for(unsigned int i = 0; i < items.size(); ++i){
 			int question = items[i];
-			double probability = probability(cat, theta, question);
+			double prob = probability(cat, theta, question);
 			int this_answer = cat.answers[question]; // TODO: verify that this is what is meant by cat@ansers[items]
-			double l_temp = pow(probability, this_answer) * pow(1-probability, 1-this_answer);
+			double l_temp = pow(prob, this_answer) * pow(1-prob, 1-this_answer);
 			L *= l_temp;
 		}
 		return L;
@@ -206,7 +206,7 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 }
 double estimateTheta(Cat & cat) {
 	double results = 0.0;
-	if(cat.estimation_method == EAP){
+	if(cat.estimation_method == Cat::EAP){
 		if (cat.integration_method == Cat::TRAPEZOID) {
 			std::vector<double> fx;
 			std::vector<double> fx_x;
@@ -276,7 +276,7 @@ double expectedPV(Cat cat, int item) {
 		std::vector<double> variances;
 		for (unsigned int i = 0, size = cat.poly_difficulty[item].size() + 1; i < size; ++i) {
 			cat.answers[item] = i + 1;
-			variances.push_back(estimateSE(cat, estimateTheta(cat)));
+			variances.push_back(estimateSE(cat));
 			variances[i] *= variances[i];
 		}
 		cat.answers[item] = NA_INTEGER;
@@ -299,7 +299,7 @@ double expectedPV(Cat cat, int item) {
 		cat.answers[item] = NA_INTEGER; // remove answer
 		double prob_zero = probability(cat, estimateTheta(cat), item);
 		double prob_one = 1.0 - prob_zero;
-		sum = (prob_zero * variance_zero) + (prob_one * varaince_one);
+		sum = (prob_zero * variance_zero) + (prob_one * variance_one);
 	}
 	return sum;
 }
@@ -336,7 +336,7 @@ List nextItemEPVcpp(S4 cat_df) {
 	}
 	else{
 		// if non-poly, set non_poly difficulty to vector<double>
-		nonpoly_difficulty = as<std::vector<double> >(cat_df.slot("difficulty");
+		nonpoly_difficulty = as<std::vector<double> >(cat_df.slot("difficulty"));
 	}
 
 
@@ -345,8 +345,8 @@ List nextItemEPVcpp(S4 cat_df) {
 			prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
 			as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
 			as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
-			poly_difficulty, nonpoly_difficulty, applicable_rows, poly, as<sd::string>(cat_df.slot("integration")),
-			as<sd::string>(cat_df.slot("estimation")));
+			poly_difficulty, nonpoly_difficulty, applicable_rows, poly, as<std::string>(cat_df.slot("integration")),
+			as<std::string>(cat_df.slot("estimation")));
 
 	// For every unanswered item, calculate the epv of that item
 	std::vector<double> epvs;
@@ -386,18 +386,31 @@ List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 			nonapplicable_rows.push_back(i + 1);
 		}
 	}
-	// Unpack the difficulty list
-	std::vector<std::vector<double> > difficulty;
-	List cat_difficulty = cat_df.slot("difficulty");
-	for (List::iterator itr = cat_difficulty.begin(); itr != cat_difficulty.end(); ++itr) {
-		difficulty.push_back(as<std::vector<double> >(*itr));
+	
+	bool poly = as<std::vector<bool> >(cat_df.slot("poly"))[0];
+	std::vector<std::vector<double> > poly_difficulty; // if poly, construct obj with vector<vector<double>> for difficulty
+	std::vector<double> nonpoly_difficulty;
+	if(poly){
+		// Unpack the difficulty list
+		List cat_difficulty = cat_df.slot("difficulty");
+		for (List::iterator itr = cat_difficulty.begin(); itr != cat_difficulty.end(); ++itr) {
+			poly_difficulty.push_back(as<std::vector<double> >(*itr)); // if poly, set poly_difficulty to vector<vector<double>
+		}
 	}
-	// Construct the c++ cat object
+	else{
+		// if non-poly, set non_poly difficulty to vector<double>
+		nonpoly_difficulty = as<std::vector<double> >(cat_df.slot("difficulty"));
+	}
+
+
+	//Construct C++ Cat object
 	Cat cat(as<std::vector<double> >(cat_df.slot("guessing")), as<std::vector<double> >(cat_df.slot("discrimination")),
-		prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
-		as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
-		as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
-		difficulty, applicable_rows, as<std::vector<bool> >(cat_df.slot("poly"))[0], as<std::string>(cat_df.slot("integration")));
+			prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
+			as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
+			as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
+			poly_difficulty, nonpoly_difficulty, applicable_rows, poly, as<std::string>(cat_df.slot("integration")),
+			as<std::string>(cat_df.slot("estimation")));
+
 	if (look_ahead_item >= cat.answers.size()) {
 		stop("Item out of bounds");
 	} else if (!(cat.answers[look_ahead_item] == NA_INTEGER)) {
@@ -405,7 +418,7 @@ List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 	}
 	std::vector<DataFrame> all_epvs;
 	std::vector<double> min_items;
-	for (unsigned int answer = 1, size = cat.difficulty[look_ahead_item].size() + 2; answer < size; ++answer) {
+	for (unsigned int answer = 1, size = cat.poly_difficulty[look_ahead_item].size() + 2; answer < size; ++answer) {
 		cat.answers[look_ahead_item] = answer;
 		std::vector<double> epvs;
 		int min_item = -1;
