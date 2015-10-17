@@ -32,6 +32,7 @@ struct Cat {
 	// in trapezoidal, this doesn't matter that much
 	// in hermite-gauss, it should be the roots of the hermite polynomial
 	std::vector<double> X;
+	std::vector<double> W;
 	std::vector<double> theta_est;
 	std::vector<std::vector<double> > poly_difficulty;
 	std::vector<double> nonpoly_difficulty;
@@ -56,11 +57,11 @@ struct Cat {
 	};
 
 	Cat(std::vector<double> guess, std::vector<double> disc, std::vector<double> pri_v, std::string pri_n,
-		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, std::vector<double> t_est,
-		std::vector<std::vector<double> > poly_diff, std::vector<double> nonpoly_diff, std::vector<int> app_rows, 
-		bool p, std::string im, std::string em) :
+		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, std::vector<double> w,
+		std::vector<double> t_est, std::vector<std::vector<double> > poly_diff, std::vector<double> nonpoly_diff,
+		std::vector<int> app_rows, bool p, std::string im, std::string em) :
 		guessing(guess), discrimination(disc), prior_values(pri_v), prior_name(pri_n), prior_params(pri_p),
-		answers(ans), D(d), X(x), theta_est(t_est), poly_difficulty(poly_diff), nonpoly_difficulty(nonpoly_diff),
+		answers(ans), D(d), X(x), W(w), theta_est(t_est), poly_difficulty(poly_diff), nonpoly_difficulty(nonpoly_diff),
 		applicable_rows(app_rows), poly(p)
 		{
 			if (im.compare("qag") == 0) {
@@ -99,6 +100,14 @@ double trapezoidal_integration(std::vector<double>& x, std::vector<double>& fx) 
 		val += (x[i + 1] - x[i]) * (fx[i + 1] + fx[i]) / 2.0;
 	}
 	return val;
+}
+
+double gauss_quadrature_integration(std::vector<double>& w, std::vector<double>& fx) {
+	double val = 0;
+	for (unsinged int i = 0; i < w.size(); ++w) {
+		val += w[i] * fx[i];
+	}
+	return val
 }
 
 // double integrateTopTheta (double x, void * params) {
@@ -163,7 +172,7 @@ void probability(Cat& cat, double theta, int question, std::vector<double>& ret_
 	}
 }
 
-/* Overloaded since non-poly case needs to just return one double value, 
+/* Overloaded since non-poly case needs to just return one double value,
  * rather than a vector of doubles.
  */
 double probability(Cat & cat, double theta, int question){
@@ -215,6 +224,14 @@ double estimateTheta(Cat & cat) {
 				fx_x.push_back(cat.X[i] * fx[i]);
 			}
 			results = trapezoidal_integration(cat.X, fx_x) / trapezoidal_integration(cat.X, fx);
+		} else if (cat.integrationMethd == Cat::HERMITE) {
+			std::vector<double> fx;
+			std::vector<double> fx_x;
+			for (unsinged int i = 0; i < cat.X.size(); ++i) {
+				fx.push_back(likelihood(cat, cat.X[i], cat.applicable_rows) * cat.prior_values[i]);
+				fx_x.push_back(cat.X[i] * fx[i]);
+			}
+			results = gauss_quadrature_integration(cat.W, fx_x) / gauss_quadrature_integration(cat.W, fx);
 		}
 		// else if (cat.integration_method == Cat::QAG) {
 		// 	gsl_function Ftop;
@@ -229,14 +246,14 @@ double estimateTheta(Cat & cat) {
 		// }
 		else{
 			//other intergrations methods not yet implemented
-			return -1; 
+			return -1;
 		}
 	}
 	else{
 		// other estimation methods not yet implemented
-		return -2; 
+		return -2;
 	}
-	
+
 	return results;
 }
 
@@ -251,6 +268,14 @@ double estimateSE(Cat & cat) {
 			fx_theta.push_back((cat.X[i] - theta_hat) * (cat.X[i] - theta_hat) * fx[i]);
 		}
 		results = sqrt(trapezoidal_integration(cat.X, fx_theta) / trapezoidal_integration(cat.X, fx));
+	} else if (cat.integration_method == Cat::HERMITE) {
+		std::vector<double> fx;
+		std::vector<double> fx_theta;
+		for (unsigned int i = 0; i < cat.X.size(); ++i) {
+			fx.push_back(likelihood(cat, cat.X[i], cat.applicable_rows) * cat.prior_values[i]);
+			fx_theta.push_back((cat.X[i] - theta_hat) * (cat.X[i] - theta_hat) * fx[i]);
+		}
+		results = sqrt(gauss_quadrature_integration(cat.W, fx_theta) / gauss_quadrature_integration(cat.X, fx));
 	}
 	// else if (cat.integration_method == Cat::QAG) {
 	// 	gsl_function Ftop;
@@ -291,7 +316,7 @@ double expectedPV(Cat cat, int item) {
 	} else {
 		cat.answers[item] = 0;
 		double variance_zero = estimateSE(cat);
-		variance_zero *= variance_zero; 
+		variance_zero *= variance_zero;
 		cat.answers[item] = 1;
 		double variance_one = estimateSE(cat);
 		variance_one *= variance_one;
@@ -386,7 +411,7 @@ List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 			nonapplicable_rows.push_back(i + 1);
 		}
 	}
-	
+
 	bool poly = as<std::vector<bool> >(cat_df.slot("poly"))[0];
 	std::vector<std::vector<double> > poly_difficulty; // if poly, construct obj with vector<vector<double>> for difficulty
 	std::vector<double> nonpoly_difficulty;
