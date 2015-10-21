@@ -15,16 +15,16 @@
 #include <math.h>
 #include <string>
 #include <vector>
+#include <limits>
 
 using namespace Rcpp;
 
-
+//#define PI 3.14159265
 
 struct Cat {
 	std::vector<double> guessing;
 	std::vector<double> discrimination;
 	std::vector<double> prior_values;
-	std::string prior_name;
 	std::vector<double> prior_params;
 	std::vector<int> answers;
 	double D;
@@ -40,35 +40,38 @@ struct Cat {
 	enum IntegrationType {
 		TRAPEZOID, HERMITE, QAG
 	};
-	enum EstimationType { EAP };
+	enum EstimationType { 
+		EAP, MAP 
+	};
+	enum priorName {
+		NORMAL, STUDENT_T
+	};
 	IntegrationType integration_method;
 	EstimationType estimation_method;
-	boost::variant<boost::math::normal, boost::math::cauchy, boost::math::students_t> distribution;
+	priorName prior_name;
+	boost::variant<boost::math::normal, boost::math::students_t> distribution;
 
-    struct DistributionVisitor : public boost::static_visitor<double> {
+ /*   struct DistributionVisitor : public boost::static_visitor<double> {
     	double operator()(const boost::math::normal normal) const { return boost::math::pdf(normal, x); }
-    	double operator()(const boost::math::cauchy cauchy) const { return boost::math::pdf(cauchy, x); }
     	double operator()(const boost::math::students_t t) const {
     		return 1.0 / prior_params[1] * boost::math::pdf(t, (x - prior_params[0]) / prior_params[1]);
     	}
     	double x;
 			std::vector<double> prior_params;
-	};
+	};*/
 
 	Cat(std::vector<double> guess, std::vector<double> disc, std::vector<double> pri_v, std::string pri_n,
-		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, std::vector<double> t_est,
-		std::vector<std::vector<double> > poly_diff, std::vector<double> nonpoly_diff, std::vector<int> app_rows, 
-		bool p, std::string im, std::string em) :
-		guessing(guess), discrimination(disc), prior_values(pri_v), prior_name(pri_n), prior_params(pri_p),
+		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, 
+		std::vector<double> t_est, std::vector<std::vector<double> > poly_diff, std::vector<double> nonpoly_diff,
+		std::vector<int> app_rows, bool p, std::string im, std::string em) :
+		guessing(guess), discrimination(disc), prior_values(pri_v), prior_params(pri_p),
 		answers(ans), D(d), X(x), theta_est(t_est), poly_difficulty(poly_diff), nonpoly_difficulty(nonpoly_diff),
 		applicable_rows(app_rows), poly(p)
 		{
-			if (im.compare("qag") == 0) {
+		/*	if (im.compare("qag") == 0) {
 				integration_method = QAG;
 				if (prior_name.compare("normal") == 0) {
 					distribution = boost::math::normal(prior_params[0], prior_params[1]);
-				} else if (prior_name.compare("dcauchy") == 0) {
-					distribution = boost::math::cauchy(prior_params[0], prior_params[1]);
 				} else if (prior_name.compare("t") == 0) {
 					distribution = boost::math::students_t(prior_params[2]);
 				} else {
@@ -78,19 +81,30 @@ struct Cat {
 				integration_method = HERMITE;
 			} else {
 				integration_method = TRAPEZOID;
+			}*/
+			
+			if(im == "trapezoid"){
+				integration_method = TRAPEZOID;
 			}
 
-			if(em.compare("EAP")){
-				em = EAP;
+			if(em == "EAP"){
+				estimation_method = EAP;
 			}
-		}
+			else if(em == "MAP"){
+				estimation_method = MAP;
+			}
 
-	double prior(double x) {
+			if(pri_n == "normal"){
+				prior_name = NORMAL;
+			}
+ 		}
+
+	/*double prior(double x) {
 		Cat::DistributionVisitor visitor;
 		visitor.x = x;
 		visitor.prior_params = prior_params;
 		return boost::apply_visitor(visitor, distribution);
-	}
+	}*/
 };
 
 double trapezoidal_integration(std::vector<double>& x, std::vector<double>& fx) {
@@ -139,7 +153,7 @@ double trapezoidal_integration(std::vector<double>& x, std::vector<double>& fx) 
 // These are optimized (probably) anyways so it's not like using a C++ version of these functions
 // would help us anways.
 // And this function is only called once per estimation.
-NumericVector prior(NumericVector& values, CharacterVector& name, NumericVector& params) {
+/*NumericVector prior(NumericVector& values, CharacterVector& name, NumericVector& params) {
 	std::string str_name = as<std::string>(name[0]);
 	if (str_name.compare("normal") == 0) {
 		return dnorm(values, params[0], params[1]);
@@ -151,6 +165,36 @@ NumericVector prior(NumericVector& values, CharacterVector& name, NumericVector&
 		return NumericVector();
 	}
 }
+*/
+
+double dnorm(double x, double mu, double sigma){
+	return 1.0 / (sigma * std::sqrt(2 * PI)) * exp(-(x - mu) * (x - mu) / (2 * sigma * sigma));
+}
+
+int gamma(int n){
+	return (n == 1 || n == 0) ? 1 : gamma(n - 2) * (n - 1);
+}
+
+double dchi(double x, double k){
+	int gamma_fn = gamma(int(k) / 2);
+	return (pow(x, (k / 2) - 1) * exp(-x / 2)) / (pow(2, k / 2) * gamma_fn);
+}
+
+double dt(double x, double mu, int df){
+	double V = dchi(x, df);
+	double Z = dnorm(x, 0, 1);
+	return (Z + mu) / std::sqrt(V / df);
+}
+
+double prior(double x, std::string name, std::vector<double> params){
+	if(name == "normal"){
+		return dnorm(x, params[0], params[1]);
+	}
+	else{
+		return dt(x, params[0], int(params[1]));
+	}
+}
+
 
 void probability(Cat& cat, double theta, int question, std::vector<double>& ret_prob) {
 	unsigned int diff_size = cat.poly_difficulty[question].size();
@@ -197,13 +241,99 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 		for(unsigned int i = 0; i < items.size(); ++i){
 			int question = items[i];
 			double prob = probability(cat, theta, question);
-			int this_answer = cat.answers[question]; // TODO: verify that this is what is meant by cat@ansers[items]
+			int this_answer = cat.answers[question]; 
 			double l_temp = pow(prob, this_answer) * pow(1-prob, 1-this_answer);
 			L *= l_temp;
 		}
 		return L;
 	}
 }
+
+double dLL(Cat & cat, double theta){
+	if(cat.applicable_rows.size() == 0){
+		return ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
+	}
+
+	double L_theta = 0.0;
+	if(cat.poly){
+		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
+			int item = cat.applicable_rows[i];
+			int answer_k = cat.answers[i];
+			int index_k = answer_k-1; // 0-indexed
+			std::vector<double> probs;
+			probability(cat, theta, cat.applicable_rows[i], probs);
+			double P_star1 = probs[index_k];
+			double Q_star1 = 1.0 - P_star1;
+			double P_star2;
+			if(index_k == 0){
+				P_star2 = 1.0;
+			}
+			else{
+				P_star2 = probs[index_k-1];
+			}
+			double Q_star2 = 1 - P_star2;
+			double P = P_star2 - P_star1;
+			double w2 = P_star2 * Q_star2;
+			double w1 = P_star1 * Q_star1;
+			L_theta = L_theta + (cat.discrimination[item] * ((w2 - w1) / P) - ((theta - cat.prior_params[0]) 
+				/ (cat.prior_params[1] * cat.prior_params[1])));
+		}
+	}
+	else{
+		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
+			int item = cat.applicable_rows[i];
+			double P = probability(cat, theta, item);
+			L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
+				* (cat.answers[item] - P) - ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
+		}
+	}
+	return L_theta;
+}
+
+double d2LL(Cat & cat, double theta){
+	if(cat.applicable_rows.size() == 0){
+		return -1.0 / (cat.prior_params[1] * cat.prior_params[1]);
+	}
+
+	double Lambda_theta = 0.0;
+	if(cat.poly){
+		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
+			int item = cat.applicable_rows[i];
+			int answer_k = cat.answers[i];
+			int index_k = answer_k-1; // 0-indexed
+			std::vector<double> probs;
+			probability(cat, theta, cat.applicable_rows[i], probs);
+			double P_star1 = probs[index_k];
+			double Q_star1 = 1.0 - P_star1;
+			double P_star2;
+			if(index_k == 0){
+				P_star2 = 1.0;
+			}
+			else{
+				P_star2 = probs[index_k-1];
+			}
+			double Q_star2 = 1 - P_star2;
+			double P = P_star2 - P_star1;
+			double w2 = P_star2 * Q_star2;
+			double w1 = P_star1 * Q_star1;
+			Lambda_theta = Lambda_theta + ((cat.discrimination[item] * cat.discrimination[item]) * ((-w1 * (Q_star1 - P_star1) 
+				+ w2 * (Q_star2 - P_star2)) / P) - (((w2 - w1) * (w2 - w1)) / (P*P)) - (1.0 / (cat.prior_params[1] * cat.prior_params[1])));
+		}
+	}
+	else{
+		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
+			int item = cat.applicable_rows[i];
+			double P = probability(cat, theta, item);
+			double Q = 1.0 - P;
+			double Lambda_temp = (P - cat.guessing[item]) / (1.0 - cat.guessing[item]);
+			Lambda_temp *= Lambda_temp;
+			Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp 
+				* (Q / P) - (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
+		}
+	}
+	return Lambda_theta;
+}
+
 double estimateTheta(Cat & cat) {
 	double results = 0.0;
 	if(cat.estimation_method == Cat::EAP){
@@ -229,12 +359,31 @@ double estimateTheta(Cat & cat) {
 		// }
 		else{
 			//other intergrations methods not yet implemented
-			return -1; 
+			throw -1; 
 		}
+	}
+	else if(cat.estimation_method == Cat::MAP){
+		double theta_hat_old = 0.0, theta_hat_new = 1.0;
+		double tolerance = std::numeric_limits<double>::epsilon(); // machine tolerance
+		double difference = std::abs(theta_hat_new - theta_hat_old);
+		int counter = 0;
+		
+		while(difference > tolerance){
+			if(counter > 10){
+				throw 1;
+			}
+
+			theta_hat_new = theta_hat_old - (dLL(cat, theta_hat_old) / d2LL(cat, theta_hat_old));
+			difference = std::abs(theta_hat_new - theta_hat_old);
+			theta_hat_old = theta_hat_new;
+
+			counter++;
+		}
+		results = theta_hat_new;
 	}
 	else{
 		// other estimation methods not yet implemented
-		return -2; 
+		throw -2; 
 	}
 	
 	return results;
@@ -264,7 +413,7 @@ double estimateSE(Cat & cat) {
 	// }
 	else{
 		//other integration methods not yet implemented
-		return -1;
+		throw -1;
 	}
 	return results;
 }
@@ -307,16 +456,20 @@ double expectedPV(Cat cat, int item) {
 // [[Rcpp::export]]
 List nextItemEPVcpp(S4 cat_df) {
 	// Precalculate the priors, since they never change given a cat object.
-	NumericVector X = cat_df.slot("X");
-	CharacterVector priorName = cat_df.slot("priorName");
-	NumericVector priorParams = cat_df.slot("priorParams");
-	std::vector<double> prior_values = as<std::vector<double> >(prior(X, priorName, priorParams));
+	std::vector<double> X = as<std::vector<double> >(cat_df.slot("X"));
+	std::string priorName = as<std::string>(cat_df.slot("priorName"));
+	std::vector<double> priorParams = as<std::vector<double> >(cat_df.slot("priorParams"));
+	std::vector<double> prior_values;
+
+	for(unsigned int i = 0; i < X.size(); ++i){
+		prior_values.push_back(prior(X[i], priorName, priorParams));
+	}
 
 	// Precalculate the rows that have been answered.
 	std::vector<int> applicable_rows;
 	std::vector<int> nonapplicable_rows;
 	std::vector<int> answers = as<std::vector<int> >(cat_df.slot("answers"));
-	for (int i = 0; i < answers.size(); i++) {
+	for (unsigned int i = 0; i < answers.size(); i++) {
 		if (answers[i] != NA_INTEGER) {
 			applicable_rows.push_back(i);
 		} else {
@@ -342,11 +495,10 @@ List nextItemEPVcpp(S4 cat_df) {
 
 	//Construct C++ Cat object
 	Cat cat(as<std::vector<double> >(cat_df.slot("guessing")), as<std::vector<double> >(cat_df.slot("discrimination")),
-			prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
-			as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
-			as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
-			poly_difficulty, nonpoly_difficulty, applicable_rows, poly, as<std::string>(cat_df.slot("integration")),
-			as<std::string>(cat_df.slot("estimation")));
+		prior_values, priorName, priorParams, as<std::vector<int> >(cat_df.slot("answers")), 
+		as<std::vector<double> >(cat_df.slot("D"))[0], as<std::vector<double> >(cat_df.slot("X")),
+		as<std::vector<double> >(cat_df.slot("Theta.est")), poly_difficulty, nonpoly_difficulty, applicable_rows, poly,
+		as<std::string>(cat_df.slot("integration")), as<std::string>(cat_df.slot("estimation")));
 
 	// For every unanswered item, calculate the epv of that item
 	std::vector<double> epvs;
@@ -368,10 +520,19 @@ List nextItemEPVcpp(S4 cat_df) {
 // [[Rcpp::export]]
 List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 	int look_ahead_item = as<int>(item) - 1;
-	NumericVector X = cat_df.slot("X");
+	/*NumericVector X = cat_df.slot("X");
 	CharacterVector priorName = cat_df.slot("priorName");
 	NumericVector priorParams = cat_df.slot("priorParams");
 	std::vector<double> prior_values = as<std::vector<double> >(prior(X, priorName, priorParams));
+	*/
+	std::vector<double> X = as<std::vector<double> >(cat_df.slot("X"));
+	std::string priorName = as<std::string>(cat_df.slot("priorName"));
+	std::vector<double> priorParams =  as<std::vector<double> >(cat_df.slot("priorParams"));
+	std::vector<double> prior_values;
+
+	for(unsigned int i = 0; i < X.size(); ++i){
+		prior_values.push_back(prior(X[i], priorName, priorParams));
+	}
 
 	// Precalculate the rows that have been answered.
 	std::vector<int> applicable_rows;
@@ -405,11 +566,10 @@ List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 
 	//Construct C++ Cat object
 	Cat cat(as<std::vector<double> >(cat_df.slot("guessing")), as<std::vector<double> >(cat_df.slot("discrimination")),
-			prior_values, as<std::string>(priorName), as<std::vector<double> >(priorParams),
-			as<std::vector<int> >(cat_df.slot("answers")), as<std::vector<double> >(cat_df.slot("D"))[0],
-			as<std::vector<double> >(cat_df.slot("X")), as<std::vector<double> >(cat_df.slot("Theta.est")),
-			poly_difficulty, nonpoly_difficulty, applicable_rows, poly, as<std::string>(cat_df.slot("integration")),
-			as<std::string>(cat_df.slot("estimation")));
+		prior_values, priorName, priorParams, as<std::vector<int> >(cat_df.slot("answers")), 
+		as<std::vector<double> >(cat_df.slot("D"))[0], as<std::vector<double> >(cat_df.slot("X")),
+		as<std::vector<double> >(cat_df.slot("Theta.est")), poly_difficulty, nonpoly_difficulty, applicable_rows, poly,
+		as<std::string>(cat_df.slot("integration")), as<std::string>(cat_df.slot("estimation")));
 
 	if (look_ahead_item >= cat.answers.size()) {
 		stop("Item out of bounds");
