@@ -249,6 +249,25 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 	}
 }
 
+double obsInf(Cat & cat, int item, double theta){
+	if(cat.applicable_rows.size() == 0){
+		Rcpp::Rcout << "ObsInf should not be called if no items have been answered." << std::endl;
+		throw -1;
+	}
+	double output = 0.0;
+	if(cat.poly){
+		//todo: implement
+	}
+	else{
+		double P = probabilty(cat, theta, item);
+		double Q = 1.0 - P;
+		double temp = ((P - cat.guessing[item]) / (1.0 - cat.guessing[item]));
+		temp *= temp;
+		output = (cat.discrimination[item] * cat.discrimination[item]) * temp * (Q / P);
+	}
+	return output;
+}
+
 double dLL(Cat & cat, double theta){
 	if(cat.applicable_rows.size() == 0){
 		return ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
@@ -302,6 +321,7 @@ double d2LL(Cat & cat, double theta){
 			int answer_k = cat.answers[i];
 			int index_k = answer_k-1; // 0-indexed
 			std::vector<double> probs;
+			probs.push_back(1.0);
 			probability(cat, theta, cat.applicable_rows[i], probs);
 			double P_star1 = probs[index_k];
 			double Q_star1 = 1.0 - P_star1;
