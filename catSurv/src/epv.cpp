@@ -249,7 +249,7 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 	}
 }
 
-double dLL(Cat & cat, double theta){
+double dLL(Cat & cat, double theta, bool use_prior){
 	if(cat.applicable_rows.size() == 0){
 		return ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
 	}
@@ -283,14 +283,20 @@ double dLL(Cat & cat, double theta){
 		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
 			int item = cat.applicable_rows[i];
 			double P = probability(cat, theta, item);
-			L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
-				* (cat.answers[item] - P) - ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
+			if(use_prior){
+				L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
+					* (cat.answers[item] - P) - ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
+			}
+			else{
+				L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
+					* (cat.answers[item] - P);
+			}
 		}
 	}
 	return L_theta;
 }
 
-double d2LL(Cat & cat, double theta){
+double d2LL(Cat & cat, double theta, bool use_prior){
 	if(cat.applicable_rows.size() == 0){
 		return -1.0 / (cat.prior_params[1] * cat.prior_params[1]);
 	}
@@ -327,8 +333,13 @@ double d2LL(Cat & cat, double theta){
 			double Q = 1.0 - P;
 			double Lambda_temp = (P - cat.guessing[item]) / (1.0 - cat.guessing[item]);
 			Lambda_temp *= Lambda_temp;
-			Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp 
-				* (Q / P) - (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
+			if(use_prior){
+				Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp * (Q / P) 
+					- (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
+			}
+			else{
+				Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp * (Q / P);
+			}
 		}
 	}
 	return Lambda_theta;
@@ -366,18 +377,10 @@ double estimateTheta(Cat & cat) {
 		double theta_hat_old = 0.0, theta_hat_new = 1.0;
 		double tolerance = std::numeric_limits<double>::epsilon(); // machine tolerance
 		double difference = std::abs(theta_hat_new - theta_hat_old);
-		int counter = 0;
-		
 		while(difference > tolerance){
-			if(counter > 10){
-				throw 1;
-			}
-
-			theta_hat_new = theta_hat_old - (dLL(cat, theta_hat_old) / d2LL(cat, theta_hat_old));
+			theta_hat_new = theta_hat_old - (dLL(cat, theta_hat_old, true) / d2LL(cat, theta_hat_old, true));
 			difference = std::abs(theta_hat_new - theta_hat_old);
 			theta_hat_old = theta_hat_new;
-
-			counter++;
 		}
 		results = theta_hat_new;
 	}
