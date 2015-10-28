@@ -261,6 +261,7 @@ double dLL(Cat & cat, double theta, bool use_prior){
 			int answer_k = cat.answers[i];
 			int index_k = answer_k-1; // 0-indexed
 			std::vector<double> probs;
+			probs.push_back(1.0); 
 			probability(cat, theta, cat.applicable_rows[i], probs);
 			double P_star1 = probs[index_k];
 			double Q_star1 = 1.0 - P_star1;
@@ -308,6 +309,7 @@ double d2LL(Cat & cat, double theta, bool use_prior){
 			int answer_k = cat.answers[i];
 			int index_k = answer_k-1; // 0-indexed
 			std::vector<double> probs;
+			probs.push_back(1.0);
 			probability(cat, theta, cat.applicable_rows[i], probs);
 			double P_star1 = probs[index_k];
 			double Q_star1 = 1.0 - P_star1;
