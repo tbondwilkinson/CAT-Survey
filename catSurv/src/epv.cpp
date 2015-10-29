@@ -8,18 +8,10 @@
 #include <boost/math/distributions/students_t.hpp>
 #include <boost/variant.hpp>
 
-// [[Rcpp::plugins(cpp11)]]
-// [[Rcpp::depends(BH)]]
-
-#include <algorithm>
-#include <math.h>
-#include <string>
-#include <vector>
-#include <limits>
-
 using namespace Rcpp;
 
-//#define PI 3.14159265
+// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::depends(BH)]]
 
 struct Cat {
 	std::vector<double> guessing;
@@ -50,15 +42,6 @@ struct Cat {
 	EstimationType estimation_method;
 	priorName prior_name;
 	boost::variant<boost::math::normal, boost::math::students_t> distribution;
-
- /*   struct DistributionVisitor : public boost::static_visitor<double> {
-    	double operator()(const boost::math::normal normal) const { return boost::math::pdf(normal, x); }
-    	double operator()(const boost::math::students_t t) const {
-    		return 1.0 / prior_params[1] * boost::math::pdf(t, (x - prior_params[0]) / prior_params[1]);
-    	}
-    	double x;
-			std::vector<double> prior_params;
-	};*/
 
 	Cat(std::vector<double> guess, std::vector<double> disc, std::vector<double> pri_v, std::string pri_n,
 		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, 
@@ -97,14 +80,7 @@ struct Cat {
 			if(pri_n == "normal"){
 				prior_name = NORMAL;
 			}
- 		}
-
-	/*double prior(double x) {
-		Cat::DistributionVisitor visitor;
-		visitor.x = x;
-		visitor.prior_params = prior_params;
-		return boost::apply_visitor(visitor, distribution);
-	}*/
+		}
 };
 
 double trapezoidal_integration(std::vector<double>& x, std::vector<double>& fx) {
@@ -599,4 +575,105 @@ List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 		min_items.push_back(min_item);
 	}
 	return List::create(Named("all.epvs")=all_epvs, Named("next.items")=min_items);
+}
+
+Cat constructCppCat(S4 cat_df){
+	std::vector<double> X = as<std::vector<double> >(cat_df.slot("X"));
+	std::string priorName = as<std::string>(cat_df.slot("priorName"));
+	std::vector<double> priorParams = as<std::vector<double> >(cat_df.slot("priorParams"));
+	std::vector<double> prior_values;
+
+	for(unsigned int i = 0; i < X.size(); ++i){
+		prior_values.push_back(prior(X[i], priorName, priorParams));
+	}
+
+	// Precalculate the rows that have been answered.
+	std::vector<int> applicable_rows;
+	std::vector<int> nonapplicable_rows;
+	std::vector<int> answers = as<std::vector<int> >(cat_df.slot("answers"));
+	for (unsigned int i = 0; i < answers.size(); i++) {
+		if (answers[i] != NA_INTEGER) {
+			applicable_rows.push_back(i);
+		} else {
+			nonapplicable_rows.push_back(i + 1);
+		}
+	}
+
+	bool poly = as<std::vector<bool> >(cat_df.slot("poly"))[0];
+	std::vector<std::vector<double> > poly_difficulty; // if poly, construct obj with vector<vector<double>> for difficulty
+	std::vector<double> nonpoly_difficulty;
+	if(poly){
+		// Unpack the difficulty list
+		List cat_difficulty = cat_df.slot("difficulty");
+		for (List::iterator itr = cat_difficulty.begin(); itr != cat_difficulty.end(); ++itr) {
+			poly_difficulty.push_back(as<std::vector<double> >(*itr)); // if poly, set poly_difficulty to vector<vector<double>
+		}
+	}
+	else{
+		// if non-poly, set non_poly difficulty to vector<double>
+		nonpoly_difficulty = as<std::vector<double> >(cat_df.slot("difficulty"));
+	}
+
+
+	//Construct C++ Cat object
+	Cat cat(as<std::vector<double> >(cat_df.slot("guessing")), as<std::vector<double> >(cat_df.slot("discrimination")),
+		prior_values, priorName, priorParams, as<std::vector<int> >(cat_df.slot("answers")), 
+		as<std::vector<double> >(cat_df.slot("D"))[0], as<std::vector<double> >(cat_df.slot("X")),
+		as<std::vector<double> >(cat_df.slot("Theta.est")), poly_difficulty, nonpoly_difficulty, applicable_rows, poly,
+		as<std::string>(cat_df.slot("integration")), as<std::string>(cat_df.slot("estimation")));
+
+	return cat;
+}
+
+// [[Rcpp::export]]
+List probability(S4 cat_df, NumericVector t, IntegerVector q){
+	// convert R inputs
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	int question = as<std::vector<int> >(q)[0];
+
+	std::vector<double> probs;
+	if(cat.poly){
+		probability(cat, theta, question, probs);
+	}
+	else{
+		probs.push_back(probability(cat, theta, question));
+	}
+	DataFrame question_probs = DataFrame::create(Named("probabilities")=probs);
+	return List::create(Named("all.probabilities")=question_probs);
+}
+
+// [[Rcpp::export]]
+List likelihood(S4 cat_df, NumericVector t){
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	return List::create(Named("likelihood")=likelihood(cat, theta, cat.applicable_rows));
+}
+
+// [[Rcpp::export]]
+List dLL(S4 cat_df, NumericVector t, LogicalVector use_p){
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	bool use_prior = as<std::vector<bool> >(use_p)[0];
+	return List::create(Named("dLL")=dLL(cat, theta, use_p));
+}
+
+// [[Rcpp::export]]
+List d2LL(S4 cat_df, NumericVector t, LogicalVector use_p){
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	bool use_prior = as<std::vector<bool> >(use_p)[0];
+	return List::create(Named("d2LL")=d2LL(cat, theta, use_p));
+}
+
+// [[Rcpp::export]]
+List estimateTheta(S4 cat_df){
+	Cat cat = constructCppCat(cat_df);
+	return List::create(Named("theta.estimate")=estimateTheta(cat));
+}
+
+// [[Rcpp::export]]
+List estimateSE(S4 cat_df){
+	Cat cat = constructCppCat(cat_df);
+	return List::create(Named("se.estimate")=estimateSE(cat));
 }
