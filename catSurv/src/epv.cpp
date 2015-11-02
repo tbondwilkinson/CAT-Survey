@@ -324,7 +324,7 @@ double d2LL(Cat & cat, double theta, bool use_prior){
 			double P = P_star2 - P_star1;
 			double w2 = P_star2 * Q_star2;
 			double w1 = P_star1 * Q_star1;
-			Lambda_theta = Lambda_theta + ((cat.discrimination[item] * cat.discrimination[item]) * ((-w1 * (Q_star1 - P_star1) 
+			Lambda_theta = Lambda_theta + (cat.discrimination[item] * cat.discrimination[item]) * (((-w1 * (Q_star1 - P_star1) 
 				+ w2 * (Q_star2 - P_star2)) / P) - (((w2 - w1) * (w2 - w1)) / (P*P)) - (1.0 / (cat.prior_params[1] * cat.prior_params[1])));
 		}
 	}
@@ -377,7 +377,8 @@ double estimateTheta(Cat & cat) {
 	}
 	else if(cat.estimation_method == Cat::MAP){
 		double theta_hat_old = 0.0, theta_hat_new = 1.0;
-		double tolerance = std::numeric_limits<double>::epsilon(); // machine tolerance
+		//double tolerance = std::numeric_limits<double>::epsilon(); // machine tolerance
+		double tolerance = 0.0000001; 
 		double difference = std::abs(theta_hat_new - theta_hat_old);
 		while(difference > tolerance){
 			theta_hat_new = theta_hat_old - (dLL(cat, theta_hat_old, true) / d2LL(cat, theta_hat_old, true));
