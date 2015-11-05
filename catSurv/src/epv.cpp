@@ -235,10 +235,10 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 			}
 			L *= question_pdf[cat.answers[question] - 1];
 		}
-		return L;
-	} else {
 		double L = 1.0;
-		for(unsigned int i = 0; i < items.size(); ++i){
+		for(unsigned
+		return L;
+	} else { int i = 0; i < items.size(); ++i){
 			int question = items[i];
 			double prob = probability(cat, theta, question);
 			int this_answer = cat.answers[question]; 
@@ -256,10 +256,23 @@ double obsInf(Cat & cat, int item, double theta){
 	}
 	double output = 0.0;
 	if(cat.poly){
-		//todo: implement
+		int index_k = cat.answers[item];
+		std::vector<double> probs;
+		probs.push_back(1.0);
+		probability(cat, theta, item, probs);
+		probs.push_back(0.0);
+		double P_star1 = probs[index_k];
+		double Q_star1 = 1.0 - P_star1;
+		double P_star2 = probs[index_k-1];
+		double Q_star2 = 1.0 - P_star2;
+		double P = P_star2 - P_star1;
+		double w2 = P_star2 * Q_star2;
+		double w1 = P_star1 * Q_star1;
+		output = (cat.discrimination[item] * cat.discrimination[item]) * (((-w1 * (Q_star1 - P_star1) 
+			+ w2 * (Q_star2 - P_star2)) / P) - (((w2 - w1) * (w2 - w1)) / (P*P)));
 	}
 	else{
-		double P = probabilty(cat, theta, item);
+		double P = probability(cat, theta, item);
 		double Q = 1.0 - P;
 		double temp = ((P - cat.guessing[item]) / (1.0 - cat.guessing[item]));
 		temp *= temp;
