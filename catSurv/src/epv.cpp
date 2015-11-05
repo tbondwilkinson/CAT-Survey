@@ -8,18 +8,10 @@
 #include <boost/math/distributions/students_t.hpp>
 #include <boost/variant.hpp>
 
-// [[Rcpp::plugins(cpp11)]]
-// [[Rcpp::depends(BH)]]
-
-#include <algorithm>
-#include <math.h>
-#include <string>
-#include <vector>
-#include <limits>
-
 using namespace Rcpp;
 
-//#define PI 3.14159265
+// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::depends(BH)]]
 
 struct Cat {
 	std::vector<double> guessing;
@@ -50,15 +42,6 @@ struct Cat {
 	EstimationType estimation_method;
 	priorName prior_name;
 	boost::variant<boost::math::normal, boost::math::students_t> distribution;
-
- /*   struct DistributionVisitor : public boost::static_visitor<double> {
-    	double operator()(const boost::math::normal normal) const { return boost::math::pdf(normal, x); }
-    	double operator()(const boost::math::students_t t) const {
-    		return 1.0 / prior_params[1] * boost::math::pdf(t, (x - prior_params[0]) / prior_params[1]);
-    	}
-    	double x;
-			std::vector<double> prior_params;
-	};*/
 
 	Cat(std::vector<double> guess, std::vector<double> disc, std::vector<double> pri_v, std::string pri_n,
 		std::vector<double> pri_p, std::vector<int> ans, double d, std::vector<double> x, 
@@ -97,14 +80,7 @@ struct Cat {
 			if(pri_n == "normal"){
 				prior_name = NORMAL;
 			}
- 		}
-
-	/*double prior(double x) {
-		Cat::DistributionVisitor visitor;
-		visitor.x = x;
-		visitor.prior_params = prior_params;
-		return boost::apply_visitor(visitor, distribution);
-	}*/
+		}
 };
 
 double trapezoidal_integration(std::vector<double>& x, std::vector<double>& fx) {
@@ -114,58 +90,6 @@ double trapezoidal_integration(std::vector<double>& x, std::vector<double>& fx) 
 	}
 	return val;
 }
-
-// double integrateTopTheta (double x, void * params) {
-//   	Cat cat = *(Cat *) params;
-//   	return x * likelihood(cat, x, cat.applicable_rows) * cat.prior(x));
-// }
-//
-// struct TopParams {
-// 	Cat cat;
-// 	double theta_hat;
-// };
-//
-// double integrateTopVar (double x, void * params) {
-// 	TopParams top_params = *(TopParams *) params;
-// 	Cat cat = top_params.cat;
-// 	double theta_hat = top_params.theta_hat;
-// 	return (x - theta_hat) * (x - theta_hat) * likelihood(cat, x, cat.applicable_rows) * cat.prior(x);
-// }
-//
-// double integrateBottom (double x, void * params) {
-//   	Cat cat = *(Cat *) params;
-//   	return likelihood(cat, x, cat.applicable_rows) * cat.prior(x));
-// }
-//
-// double gsl_integrate(gsl_function F) {
-// 	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-//
-//   	double result, error;
-//
-// 	gsl_integration_qag (&F, -5.0, 5.0, 0, 1e-7, 1000, w, &result, &error);
-// 	gsl_integration_workspace_free (w);
-//
-// 	return result;
-// }
-
-// This method is using Rcpp syntactic sugar (literally what they call it)
-// instead of C++ because of dnorm/dcauchy/dt functions that we need exposed.
-// These are optimized (probably) anyways so it's not like using a C++ version of these functions
-// would help us anways.
-// And this function is only called once per estimation.
-/*NumericVector prior(NumericVector& values, CharacterVector& name, NumericVector& params) {
-	std::string str_name = as<std::string>(name[0]);
-	if (str_name.compare("normal") == 0) {
-		return dnorm(values, params[0], params[1]);
-	} else if (str_name.compare("dcauchy") == 0) {
-		return dcauchy(values, params[0], params[1]);
-	} else if (str_name.compare("t") == 0) {
-		return 1.0 / params[1] * dt((values - params[0]) / params[1], params[2]);
-	} else {
-		return NumericVector();
-	}
-}
-*/
 
 double dnorm(double x, double mu, double sigma){
 	return 1.0 / (sigma * std::sqrt(2 * PI)) * exp(-(x - mu) * (x - mu) / (2 * sigma * sigma));
@@ -194,7 +118,6 @@ double prior(double x, std::string name, std::vector<double> params){
 		return dt(x, params[0], int(params[1]));
 	}
 }
-
 
 void probability(Cat& cat, double theta, int question, std::vector<double>& ret_prob) {
 	unsigned int diff_size = cat.poly_difficulty[question].size();
@@ -284,14 +207,11 @@ double dLL(Cat & cat, double theta, bool use_prior){
 		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
 			int item = cat.applicable_rows[i];
 			double P = probability(cat, theta, item);
-			if(use_prior){
-				L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
-					* (cat.answers[item] - P) - ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
-			}
-			else{
-				L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
-					* (cat.answers[item] - P);
-			}
+			L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
+				* (cat.answers[item] - P);
+		}
+		if(use_prior){
+			L_theta -= ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
 		}
 	}
 	return L_theta;
@@ -335,13 +255,10 @@ double d2LL(Cat & cat, double theta, bool use_prior){
 			double Q = 1.0 - P;
 			double Lambda_temp = (P - cat.guessing[item]) / (1.0 - cat.guessing[item]);
 			Lambda_temp *= Lambda_temp;
-			if(use_prior){
-				Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp * (Q / P) 
-					- (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
-			}
-			else{
-				Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp * (Q / P);
-			}
+			Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp * (Q / P);
+		}
+		if(use_prior){
+			Lambda_theta -= (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
 		}
 	}
 	return Lambda_theta;
@@ -382,6 +299,7 @@ double estimateTheta(Cat & cat) {
 		double difference = std::abs(theta_hat_new - theta_hat_old);
 		while(difference > tolerance){
 			theta_hat_new = theta_hat_old - (dLL(cat, theta_hat_old, true) / d2LL(cat, theta_hat_old, true));
+			Rcpp::Rcout << theta_hat_new << std::endl;
 			difference = std::abs(theta_hat_new - theta_hat_old);
 			theta_hat_old = theta_hat_new;
 		}
@@ -600,4 +518,142 @@ List lookAheadEPVcpp(S4 cat_df, NumericVector item) {
 		min_items.push_back(min_item);
 	}
 	return List::create(Named("all.epvs")=all_epvs, Named("next.items")=min_items);
+}
+
+Cat constructCppCat(S4 cat_df){
+	std::vector<double> X = as<std::vector<double> >(cat_df.slot("X"));
+	std::string priorName = as<std::string>(cat_df.slot("priorName"));
+	std::vector<double> priorParams = as<std::vector<double> >(cat_df.slot("priorParams"));
+	std::vector<double> prior_values;
+
+	for(unsigned int i = 0; i < X.size(); ++i){
+		prior_values.push_back(prior(X[i], priorName, priorParams));
+	}
+
+	// Precalculate the rows that have been answered.
+	std::vector<int> applicable_rows;
+	std::vector<int> nonapplicable_rows;
+	std::vector<int> answers = as<std::vector<int> >(cat_df.slot("answers"));
+	for (unsigned int i = 0; i < answers.size(); i++) {
+		if (answers[i] != NA_INTEGER) {
+			applicable_rows.push_back(i);
+		} else {
+			nonapplicable_rows.push_back(i + 1);
+		}
+	}
+
+	bool poly = as<std::vector<bool> >(cat_df.slot("poly"))[0];
+	std::vector<std::vector<double> > poly_difficulty; // if poly, construct obj with vector<vector<double>> for difficulty
+	std::vector<double> nonpoly_difficulty;
+	if(poly){
+		// Unpack the difficulty list
+		List cat_difficulty = cat_df.slot("difficulty");
+		for (List::iterator itr = cat_difficulty.begin(); itr != cat_difficulty.end(); ++itr) {
+			poly_difficulty.push_back(as<std::vector<double> >(*itr)); // if poly, set poly_difficulty to vector<vector<double>
+		}
+	}
+	else{
+		// if non-poly, set non_poly difficulty to vector<double>
+		nonpoly_difficulty = as<std::vector<double> >(cat_df.slot("difficulty"));
+	}
+
+
+	//Construct C++ Cat object
+	Cat cat(as<std::vector<double> >(cat_df.slot("guessing")), as<std::vector<double> >(cat_df.slot("discrimination")),
+		prior_values, priorName, priorParams, as<std::vector<int> >(cat_df.slot("answers")), 
+		as<std::vector<double> >(cat_df.slot("D"))[0], as<std::vector<double> >(cat_df.slot("X")),
+		as<std::vector<double> >(cat_df.slot("Theta.est")), poly_difficulty, nonpoly_difficulty, applicable_rows, poly,
+		as<std::string>(cat_df.slot("integration")), as<std::string>(cat_df.slot("estimation")));
+
+	return cat;
+}
+
+// [[Rcpp::export]]
+List probability(S4 cat_df, NumericVector t, IntegerVector q){
+	// convert R inputs
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	int question = as<std::vector<int> >(q)[0];
+
+	std::vector<double> probs;
+	if(cat.poly){
+		probability(cat, theta, question, probs);
+	}
+	else{
+		probs.push_back(probability(cat, theta, question));
+	}
+	DataFrame question_probs = DataFrame::create(Named("probabilities")=probs);
+	return List::create(Named("all.probabilities")=question_probs);
+}
+
+// [[Rcpp::export]]
+double likelihood(S4 cat_df, NumericVector t){
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	return likelihood(cat, theta, cat.applicable_rows);
+}
+
+// [[Rcpp::export]]
+double dLL(S4 cat_df, NumericVector t, LogicalVector use_p){
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	bool use_prior = as<std::vector<bool> >(use_p)[0];
+	return dLL(cat, theta, use_p);
+}
+
+// [[Rcpp::export]]
+double d2LL(S4 cat_df, NumericVector t, LogicalVector use_p){
+	Cat cat = constructCppCat(cat_df);
+	double theta = as<std::vector<double> >(t)[0];
+	bool use_prior = as<std::vector<bool> >(use_p)[0];
+	return d2LL(cat, theta, use_p);
+}
+
+// [[Rcpp::export]]
+double estimateTheta(S4 cat_df){
+	Cat cat = constructCppCat(cat_df);
+	return estimateTheta(cat);
+}
+
+// [[Rcpp::export]]
+double estimateSE(S4 cat_df){
+	Cat cat = constructCppCat(cat_df);
+	return estimateSE(cat);
+}
+
+// [[Rcpp::export]]
+double prior(NumericVector x, CharacterVector c, NumericVector p){
+	double x_ =  as<std::vector<double> >(x)[0];
+	std::string name = as<std::string>(c);
+	std::vector<double> params = as<std::vector<double> >(p);
+	return prior(x_, name, params);
+}
+
+// [[Rcpp:export]]
+double trapezoidal_integration(NumericVector x, NumericVector fx){
+	std::vector<double> x_ = as<std::vector<double> >(x);
+	std::vector<double> fx_ = as<std::vector<double> >(fx);
+	return trapezoidal_integration(x_, fx_);
+}
+
+// [[Rcpp:export]]
+double dnorm(NumericVector x, NumericVector mu, NumericVector sigma){
+	return dnorm(as<std::vector<double> >(x)[0], as<std::vector<double> >(mu)[0],
+		as<std::vector<double> >(sigma)[0]);
+}
+
+// [[Rcpp:export]]
+int gamma(IntegerVector n){
+	return gamma(as<std::vector<int> >(n)[0]);
+}
+
+// [[Rcpp:export]]
+double dchi(NumericVector x, NumericVector k){
+	return dchi(as<std::vector<double> >(x)[0], as<std::vector<double> >(k)[0]);
+}
+
+// [[Rcpp::export]]
+double dt(NumericVector x, NumericVector mu, IntegerVector df){
+	return dt(as<std::vector<double> >(x)[0], as<std::vector<double> >(mu)[0],
+		as<std::vector<int> >(df)[0]);
 }
