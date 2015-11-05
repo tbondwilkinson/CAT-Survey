@@ -159,7 +159,7 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 			L *= question_pdf[cat.answers[question] - 1];
 		}
 		return L;
-	} else {
+	} else { 
 		double L = 1.0;
 		for(unsigned int i = 0; i < items.size(); ++i){
 			int question = items[i];
@@ -170,6 +170,38 @@ double likelihood(Cat & cat, double theta, std::vector<int> items) {
 		}
 		return L;
 	}
+}
+
+double obsInf(Cat & cat, int item, double theta){
+	if(cat.applicable_rows.size() == 0){
+		Rcpp::Rcout << "ObsInf should not be called if no items have been answered." << std::endl;
+		throw -1;
+	}
+	double output = 0.0;
+	if(cat.poly){
+		int index_k = cat.answers[item];
+		std::vector<double> probs;
+		probs.push_back(1.0);
+		probability(cat, theta, item, probs);
+		probs.push_back(0.0);
+		double P_star1 = probs[index_k];
+		double Q_star1 = 1.0 - P_star1;
+		double P_star2 = probs[index_k-1];
+		double Q_star2 = 1.0 - P_star2;
+		double P = P_star2 - P_star1;
+		double w2 = P_star2 * Q_star2;
+		double w1 = P_star1 * Q_star1;
+		output = (cat.discrimination[item] * cat.discrimination[item]) * (((-w1 * (Q_star1 - P_star1) 
+			+ w2 * (Q_star2 - P_star2)) / P) - (((w2 - w1) * (w2 - w1)) / (P*P)));
+	}
+	else{
+		double P = probability(cat, theta, item);
+		double Q = 1.0 - P;
+		double temp = ((P - cat.guessing[item]) / (1.0 - cat.guessing[item]));
+		temp *= temp;
+		output = (cat.discrimination[item] * cat.discrimination[item]) * temp * (Q / P);
+	}
+	return output;
 }
 
 double dLL(Cat & cat, double theta, bool use_prior){
