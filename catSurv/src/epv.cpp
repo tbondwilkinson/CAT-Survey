@@ -181,27 +181,19 @@ double dLL(Cat & cat, double theta, bool use_prior){
 	if(cat.poly){
 		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
 			int item = cat.applicable_rows[i];
-			int answer_k = cat.answers[i];
-			int index_k = answer_k-1; // 0-indexed
+			int answer_k = cat.answers[item];
 			std::vector<double> probs;
-			//probs.push_back(1.0); 
-			probability(cat, theta, cat.applicable_rows[i], probs);
-			probs.push_back(0.0);
-			double P_star1 = probs[index_k];
+			probs.push_back(1.0);
+			probability(cat, theta, item, probs);
+			probs.push_back(0.0); 
+			double P_star1 = probs[answer_k];
 			double Q_star1 = 1.0 - P_star1;
-			double P_star2;
-			if(index_k == 0){
-				P_star2 = 1.0;
-			}
-			else{
-				P_star2 = probs[index_k-1];
-			}
+			double P_star2 = probs[answer_k-1];
 			double Q_star2 = 1 - P_star2;
 			double P = P_star2 - P_star1;
 			double w2 = P_star2 * Q_star2;
 			double w1 = P_star1 * Q_star1;
-			L_theta = L_theta + (cat.discrimination[item] * ((w2 - w1) / P) - ((theta - cat.prior_params[0]) 
-				/ (cat.prior_params[1] * cat.prior_params[1])));
+			L_theta = L_theta + (cat.discrimination[item] * ((w2 - w1) / P));
 		}
 	}
 	else{
@@ -211,9 +203,9 @@ double dLL(Cat & cat, double theta, bool use_prior){
 			L_theta = L_theta + cat.discrimination[item] * ((P - cat.guessing[item]) / (P * (1.0 - cat.guessing[item]))) 
 				* (cat.answers[item] - P);
 		}
-		if(use_prior){
-			L_theta -= ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
-		}
+	}
+	if(use_prior){
+		L_theta -= ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
 	}
 	return L_theta;
 }
@@ -227,26 +219,20 @@ double d2LL(Cat & cat, double theta, bool use_prior){
 	if(cat.poly){
 		for(unsigned int i = 0; i < cat.applicable_rows.size(); ++i){
 			int item = cat.applicable_rows[i];
-			int answer_k = cat.answers[i];
-			int index_k = answer_k-1; // 0-indexed
+			int answer_k = cat.answers[item];
 			std::vector<double> probs;
-			probability(cat, theta, cat.applicable_rows[i], probs);
+			probs.push_back(1.0);
+			probability(cat, theta, item, probs);
 			probs.push_back(0.0);
-			double P_star1 = probs[index_k];
+			double P_star1 = probs[answer_k];
 			double Q_star1 = 1.0 - P_star1;
-			double P_star2;
-			if(index_k == 0){
-				P_star2 = 1.0;
-			}
-			else{
-				P_star2 = probs[index_k-1];
-			}
+			double P_star2 = probs[answer_k-1];
 			double Q_star2 = 1 - P_star2;
 			double P = P_star2 - P_star1;
 			double w2 = P_star2 * Q_star2;
 			double w1 = P_star1 * Q_star1;
 			Lambda_theta = Lambda_theta + (cat.discrimination[item] * cat.discrimination[item]) * (((-w1 * (Q_star1 - P_star1) 
-				+ w2 * (Q_star2 - P_star2)) / P) - (((w2 - w1) * (w2 - w1)) / (P*P)) - (1.0 / (cat.prior_params[1] * cat.prior_params[1])));
+				+ w2 * (Q_star2 - P_star2)) / P) - (((w2 - w1) * (w2 - w1)) / (P*P)));
 		}
 	}
 	else{
@@ -258,9 +244,9 @@ double d2LL(Cat & cat, double theta, bool use_prior){
 			Lambda_temp *= Lambda_temp;
 			Lambda_theta = Lambda_theta - (cat.discrimination[item] * cat.discrimination[item]) * Lambda_temp * (Q / P);
 		}
-		if(use_prior){
-			Lambda_theta -= (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
-		}
+	}
+	if(use_prior){
+		Lambda_theta -= (1.0 / (cat.prior_params[1] * cat.prior_params[1])); 
 	}
 	return Lambda_theta;
 }
@@ -277,17 +263,6 @@ double estimateTheta(Cat & cat) {
 			}
 			results = trapezoidal_integration(cat.X, fx_x) / trapezoidal_integration(cat.X, fx);
 		}
-		// else if (cat.integration_method == Cat::QAG) {
-		// 	gsl_function Ftop;
-		// 	Ftop.function = &integrateTopTheta;
-		// 	Ftop.params = &cat;
-		//
-		// 	gsl_function Fbottom;
-		// 	Fbottom.function = &integrateBottom;
-		// 	Fbottom.params = &cat;
-		//
-		// 	results = gsl_integration_qag(Ftop) / gsl_integration_qag(Fbottom);
-		// }
 		else{
 			//other intergrations methods not yet implemented
 			throw -1; 
@@ -295,7 +270,6 @@ double estimateTheta(Cat & cat) {
 	}
 	else if(cat.estimation_method == Cat::MAP){
 		double theta_hat_old = 0.0, theta_hat_new = 1.0;
-		//double tolerance = std::numeric_limits<double>::epsilon(); // machine tolerance
 		double tolerance = 0.0000001; 
 		double difference = std::abs(theta_hat_new - theta_hat_old);
 		while(difference > tolerance){
@@ -325,16 +299,6 @@ double estimateSE(Cat & cat) {
 		}
 		results = sqrt(trapezoidal_integration(cat.X, fx_theta) / trapezoidal_integration(cat.X, fx));
 	}
-	// else if (cat.integration_method == Cat::QAG) {
-	// 	gsl_function Ftop;
-	// 	Ftop.function = &integrateTopVar;
-	// 	TopParams top_params;
-	// 	top_params.cat = cat;
-	// 	top_params.theta_hat = theta_hat;
-	// 	Ftop.params = &top_params;
-	//
-	// 	results = sqrt(gsl_integration_qag(Ftop) / gsl_integration_qag(Fbottom));
-	// }
 	else{
 		//other integration methods not yet implemented
 		throw -1;
