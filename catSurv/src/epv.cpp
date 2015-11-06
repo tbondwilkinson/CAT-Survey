@@ -204,6 +204,34 @@ double obsInf(Cat & cat, int item, double theta){
 	return output;
 }
 
+double fisherInf(Cat & cat, int item, double theta){
+	double output = 0.0;
+	if(cat.poly){
+		std::vector<double> probs;
+		probs.push_back(1.0);
+		probability(cat, theta, item, probs);
+		probs.push_back(0.0);
+		for(unsigned int i = 1; i <= cat.poly_difficulty[item].size(); ++i){
+			double P_star1 = probs[i];
+			double Q_star1 = 1.0 - P_star1;
+			double P_star2 = probs[i-1];
+			double Q_star2 = 1.0 - P_star2;
+			double w2 = P_star2 * Q_star2;
+			double w1 = P_star1 * Q_star1;
+			output += (cat.discrimination[item] * cat.discrimination[item]) *(((w2 - w1) * (w2 - w1)) 
+				/ (P_star2- P_star1));		
+		}
+	}
+	else{
+		double P = probability(cat, theta, item);
+		double Q = 1.0 - P;
+		double temp = (P - cat.guessing[item]) / (1.0 - cat.guessing[item]);
+		temp *= temp;
+		output = (cat.discrimination[item] * cat.discrimination[item]) * temp * (Q / P);
+	}
+	return output;
+}
+
 double dLL(Cat & cat, double theta, bool use_prior){
 	if(cat.applicable_rows.size() == 0){
 		return ((theta - cat.prior_params[0]) / (cat.prior_params[1] * cat.prior_params[1]));
@@ -593,6 +621,12 @@ double likelihood(S4 cat_df, NumericVector t){
 double obsInf(S4 cat_df, int item, double theta){
 	Cat cat = constructCppCat(cat_df);
 	return obsInf(cat, item, theta); 
+}
+
+// [[Rcpp::export]]
+double fisherInf(S4 cat_df, int item, double theta){
+	Cat cat = constructCppCat(cat_df);
+	return fisherInf(cat, item, theta); 
 }
 
 // [[Rcpp::export]]
