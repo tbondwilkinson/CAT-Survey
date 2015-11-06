@@ -590,6 +590,12 @@ double likelihood(S4 cat_df, NumericVector t){
 }
 
 // [[Rcpp::export]]
+double obsInf(S4 cat_df, int item, double theta){
+	Cat cat = constructCppCat(cat_df);
+	return obsInf(cat, item, theta); 
+}
+
+// [[Rcpp::export]]
 double dLL(S4 cat_df, NumericVector t, LogicalVector use_p){
 	Cat cat = constructCppCat(cat_df);
 	double theta = as<std::vector<double> >(t)[0];
