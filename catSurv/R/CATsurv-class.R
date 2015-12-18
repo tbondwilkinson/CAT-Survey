@@ -48,7 +48,10 @@ setClass("CATsurv",
            difficulty="numericORlist",
            poly="logical",
            integration="character",
-           estimation="character"
+           estimation="character",
+           selection="character",
+           coverage="numeric",
+           points="numeric"
          ),
          prototype=prototype(
            priorName="normal",
@@ -59,7 +62,10 @@ setClass("CATsurv",
            D=1,
            poly=FALSE,
            integration="trapezoid",
-           estimation="EAP"
+           estimation="EAP",
+           selection="EPV",
+           coverage=0.9,
+           points=40
          )
 )
 
