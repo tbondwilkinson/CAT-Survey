@@ -47,7 +47,11 @@ setClass("CATsurv",
            Theta.est="numeric",
            difficulty="numericORlist",
            poly="logical",
-           integration="character"
+           integration="character",
+           estimation="character",
+           selection="character",
+           coverage="numeric",
+           points="numeric"
          ),
          prototype=prototype(
            priorName="normal",
@@ -57,7 +61,11 @@ setClass("CATsurv",
            quadPoints=43,
            D=1,
            poly=FALSE,
-           integration="trapezoid"
+           integration="trapezoid",
+           estimation="EAP",
+           selection="EPV",
+           coverage=0.9,
+           points=40
          )
 )
 
