@@ -37,7 +37,7 @@ struct Cat {
 		EAP, MAP 
 	};
 	enum SelectionType{
-		EPV, MFI, LWI, PWI, MEI
+		EPV, MFI, LWI, PWI, MEI, invalid
 	};
 	enum priorName {
 		NORMAL, STUDENT_T
@@ -83,6 +83,9 @@ struct Cat {
 			}
 			else if(sm == "MEI"){
 				selection_method = MEI;
+			}
+			else{
+				selection_method = invalid;
 			}
 
 			if(pri_n == "normal"){
